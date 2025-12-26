@@ -1,0 +1,62 @@
+name: Call API and Update README
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Start API in background
+        run: |
+          nohup npm start > api.log 2>&1 &
+          echo "API started (background)."
+
+      - name: Wait for API to be ready
+        run: |
+          for i in {1..30}; do
+            if curl -sf http://localhost:3000/status > /dev/null; then
+              echo "API is up."
+              exit 0
+            fi
+            echo "Waiting for API... ($i/30)"
+            sleep 1
+          done
+          echo "API did not become ready in time."
+          echo "---- api.log ----"
+          cat api.log || true
+          exit 1
+
+      - name: Run custom action
+        uses: ./.github/actions/call-node-api
+        with:
+          api-url: http://localhost:3000/status
+
+      - name: Commit and push README changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git add README.md
+          git commit -m "chore: update API status in README"
+          git push
